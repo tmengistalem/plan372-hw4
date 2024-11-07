@@ -1,0 +1,262 @@
+---
+title: "Linear regression"
+author: "Tsega M"
+format: pdf
+editor: visual
+---
+
+Public Repository link: https://github.com/tmengistalem/plan372-hw4
+
+```{r}
+# Loading libraries in! 
+library(tidyverse)
+library(tidycensus)
+library(ggplot2)
+library(readxl)
+library(ggthemes) 
+```
+
+```{r}
+# Laoding csv inpute file
+data <- read_csv("airport_pairs.csv")
+head(data)
+```
+
+## Question 1: Market saturation analysis
+
+Create a table of the existing flights to or from RDU, and the number of passengers passenger traveling to each destination. Make sure to include both flights departing RDU and those arriving RDU. There are a few records in the data for flights between RDU and places that do not have nonstop service from RDU (e.g. Fairbanks, Tucson). Filter your table to only include airport pairs with more 10,000 passengers. [0.5 points]
+
+Analysis: The market saturation analysis for RDU reveals that several routes, especially to major hubs like Atlanta (ATL), Charlotte (CLT), and New York City airports (LGA, JFK, EWR), have exceptionally high passenger volumes, each exceeding 200,000 annually, with ATL alone topping 500,000. Other popular routes to cities such as Orlando (MCO), Denver (DEN), and Chicago (ORD) also show strong demand. I'm frankly not surprised given that the whole NC and ATL geography has seen significant growth in population in recent years.
+
+Medium-demand routes including Washington, D.C. (DCA, IAD), Philadelphia (PHL), and Nashville (BNA). The high passenger volumes on these routes indicate RDU's role as a key regional connector and suggest potential opportunities for increased capacity on certain saturated routes.
+
+```{r}
+# Filter for routes to or from RDU and calculate total passengers
+rdu_routes <- data %>%
+  filter(origin == "RDU" | dest == "RDU") %>% # Select only rows where either origin or destination is RDU
+  group_by(origin, dest) %>% # Group by both origin and destination to aggregate each route separately
+  summarise(total_passengers = sum(passengers, na.rm = TRUE), .groups = "drop") # Calculate total passengers for each route, ignoring any missing values
+
+
+# Filter to include only routes with more than 10,000 passengers
+popular_rdu_routes <- rdu_routes %>%
+  filter(total_passengers > 10000) # Keep only routes where total passenger count exceeds 10,000
+
+# Display the resulting table of popular routes to/from RDU
+popular_rdu_routes
+```
+
+## Question 2: Bringing in Census data
+
+Use tidycensus to retrieve Census data and match it to the airport pair data (the full dataset, not only flights to/from RDU). The geography you'll want to use with tidycensus is cbsa for core-based statistical area; this will match the origin_cbsa and dest_cbsa codes in the airport data. Core-based statistical area is Census jargon for a city and its suburbs. Retrieve at least the total population, but consider whether there are any other variables you want to include that may be predictive of air travel volumes.
+
+Join the CBSA population data to the airport data. You will need to join it twice, so that you have total population for the origin CBSA and the destination CBSA. You may want to create copies of the Census data with the variables renamed before joining, so that you know which columns are for the origin vs. destination airport. For instance, you might create one table with the population column called "origin_pop" and then join based on the origin CBSA, and another with the column called "destination_pop", and then join based on the destination CBSA. If you get errors about types not matching, look at how we solved this in the R GIS exercise.
+
+Some areas are served by multiple airports (for instance, Chicago is served by both O'Hare and Midway International Airports). The data show airport-to-airport volumes. Use group_by and summarize to create a new dataset that shows total CBSA to CBSA volumes.
+
+A few airports are not in a metropolitan area. You can remove them from this analysis.
+
+Generate scatterplots between origin population and total passengers, destination population and total passengers, and flight distance and total passengers. Include the scatterplots in your report, and describe what trend they show (if any). [1.5 points]
+
+Extra credit: include a pair of scatterplots for another variable other than population, at the origin and destination population, at the origin and destination [+1 point]
+
+
+Analysis: Total Passengers vs. Origin Population:
+
+There's no clear linear trend between origin population and total passengers. However, it appears that regions with populations ranging from approximately 1 million to 10 million tend to have higher passenger volumes which could suggest a moderate influence of origin population on air travel demand. While lower origin population have lower total passengers. Intuitively, some cities could be outliars because despite lower population they could be a hub for transit flights (due to their location) adding to the total passengers.
+
+Total Passengers vs. Origin Income:
+
+Origin income and total passengers show some clustering between income levels of \$50,000 and \$100,000. There is no strong linear relationship, but regions with mid-range incomes seem to generate substantial passenger volumes. This could imply that moderate-income areas have more active travelers, while extremely high or low incomes do not directly correlate with increased air travel demand.
+
+Total Passengers vs. Flight Distance:
+
+This plot suggests an inverse trend: shorter distances tend to correlate with higher passenger volumes, while longer flights have fewer passengers. This pattern may reflect more frequent travel on shorter, regional routes, possibly for business or routine travel, whereas longer routes like international have lower but potentially more targeted demand.
+
+Total Passengers vs. Destination Population:
+
+Similar to the origin population, there is no strong linear relationship between destination population and total passengers. Regions with populations between 1 and 10 million again show higher passenger volumes, indicating that mid-sized metropolitan areas may drive more air traffic compared to either very large or very small regions.
+
+Total Passengers vs. Destination Income:
+
+The scatterplot for destination income resembles the origin income pattern, with most passengers concentrated in destinations with incomes around \$50,000 to \$100,000. Higher or lower income levels don't show a clear pattern of increased travel demand.
+
+In summary, mid-sized regions (both in terms of population and income) tend to generate higher passenger volumes. There is a noticeable preference for shorter flights, as shown by the inverse relationship between distance and passenger count. While population and income levels do have an impact, they are not the sole determinants of air travel volume, such as work travel, tourism, or regional connectivity, likely play significant roles.
+
+```{r}
+# Convert CBSA codes in airport_data to character to match with Census data
+data <- data %>% 
+  mutate(origin_cbsa = as.character(origin_cbsa), # Convert origin CBSA codes to character type
+         dest_cbsa = as.character(dest_cbsa)) # Convert destination CBSA codes to character type
+
+# Retrieve Census data for CBSA regions, adding income variable
+census_data <- get_acs( 
+  geography = "cbsa", # Specify CBSA (Core-Based Statistical Area) geography level
+  variables = c(population = "B01003_001", income = "B19013_001"), # Retrieve total population and income data
+  year = 2022 # Specify the year for the ACS data
+)
+
+# Separate population and income data for origin and destination
+origin_census_pop <- census_data %>%
+  filter(variable == "population") %>% # Filter to get only population data
+  select(GEOID, origin_pop = estimate) # Select GEOID and rename 'estimate' column to 'origin_pop'
+
+origin_census_income <- census_data %>%
+  filter(variable == "income") %>%
+  select(GEOID, origin_income = estimate)
+
+dest_census_pop <- census_data %>%
+  filter(variable == "population") %>%
+  select(GEOID, destination_pop = estimate)
+
+dest_census_income <- census_data %>%
+  filter(variable == "income") %>%
+  select(GEOID, destination_income = estimate)
+
+# Join Census data to the airport data (both origin and destination)
+airport_data <- data %>%
+  left_join(origin_census_pop, by = c("origin_cbsa" = "GEOID")) %>%  # Join origin population data
+  left_join(origin_census_income, by = c("origin_cbsa" = "GEOID")) %>%  # Join origin income data
+  left_join(dest_census_pop, by = c("dest_cbsa" = "GEOID")) %>%  # Join destination population data
+  left_join(dest_census_income, by = c("dest_cbsa" = "GEOID"))  # Join destination income data
+
+# Summarize to create CBSA-to-CBSA data
+cbsa_to_cbsa_data <- airport_data %>%
+  group_by(origin_cbsa, dest_cbsa) %>%  # Group by origin and destination CBSA
+  summarise(
+    total_passengers = sum(passengers, na.rm = TRUE),   # Sum total passengers for each CBSA pair
+    origin_pop = first(origin_pop),                     # Use the first instance of origin population
+    destination_pop = first(destination_pop),           # Use the first instance of destination population
+    origin_income = first(origin_income),               # Use the first instance of origin income
+    destination_income = first(destination_income),     # Use the first instance of destination income
+    avg_distance = mean(distancemiles, na.rm = TRUE),   # Calculate the average distance between CBSAs
+    .groups = "drop"                                    # Drop grouping structure for further analysis
+  ) %>%
+  filter(!is.na(origin_pop) & !is.na(destination_pop) & !is.na(origin_income) & !is.na(destination_income)) # Filter out rows with missing data
+
+
+
+# Scatterplot of origin population vs. total passengers
+ggplot(cbsa_to_cbsa_data, aes(x = origin_pop, y = total_passengers)) +
+  geom_point() +
+  labs(title = "Total Passengers vs. Origin Population", x = "Origin Population", y = "Total Passengers")
+
+# Scatterplot of destination population vs. total passengers
+ggplot(cbsa_to_cbsa_data, aes(x = destination_pop, y = total_passengers)) +
+  geom_point() +
+  labs(title = "Total Passengers vs. Destination Population", x = "Destination Population", y = "Total Passengers")
+
+# Scatterplot of distance vs. total passengers
+ggplot(cbsa_to_cbsa_data, aes(x = avg_distance, y = total_passengers)) +
+  geom_point() +
+  labs(title = "Total Passengers vs. Flight Distance", x = "Flight Distance (miles)", y = "Total Passengers")
+
+# Extra credit: Scatterplot of origin income vs. total passengers
+ggplot(cbsa_to_cbsa_data, aes(x = origin_income, y = total_passengers)) +
+  geom_point() +
+  labs(title = "Total Passengers vs. Origin Income", x = "Origin Income", y = "Total Passengers")
+
+# Extra credit: Scatterplot of destination income vs. total passengers
+ggplot(cbsa_to_cbsa_data, aes(x = destination_income, y = total_passengers)) +
+  geom_point() +
+  labs(title = "Total Passengers vs. Destination Income", x = "Destination Income", y = "Total Passengers")
+
+
+
+
+```
+
+# Question 3: Passenger volume regression
+
+Run a regression of total CBSA-to-CBSA passenger volumes on origin CBSA population, destination CBSA population, distance between cities, and any other Census variables you wish to include. Use all the data, not just data for flights coming to/going from RDU. Present the results of your regression as a table in your writeup, and interpret the coefficients (e.g., how many more airline passengers are associated with a 1000-person increase in population at the origin city, etc.) Interpret all coefficients in the model (except the constant/intercept). Do the coefficients make sense? Are they statistically significant? Does the model fit well, as indicated by R-squared? [2 points + 1 extra credit point for including and interpreting variables other than population]
+
+Analysis: The regression model predicts total CBSA-to-CBSA passenger volumes using variables: origin CBSA population, destination CBSA population, distance between cities, origin income, and destination income.
+
+Origin Population has an estimate of ~0.02213, telling us that for every additional 1,000 people in the origin CBSA population, the total passenger volume is expected to increase by about 22 passengers, holding other factors constant. The extremely low p-value indicates this coefficient is highly statistically significant, suggesting that origin population size is a meaningful predictor of passenger volume.
+
+Destination Population has an of estimate of ~0.02206, which is similar to Orinin Population, and so an increase of 1,000 people in the destination CBSA population is associated with approximately 22 additional passengers. This variable is also highly significant.
+
+Average Distance has an estimate of approx. -29.58, and every additional mile in distance between cities, the total passenger volume decreases by approximately 30 passengers. This negative relationship aligns with the intuition that longer distances may reduce travel frequency due to factors like time and cost. The p-value indicates strong statistical significance, validating the impact of distance on passenger volumes.
+
+Origin Income, with an estimate of 1.006 tells us that for every \$1 increase in average income at the origin, the total passenger volume increases by about 1 passenger, holding other variables constant. This suggests a positive relationship between income and travel volume, as people with higher incomes may have more disposable income for travel. This coefficient is statistically significant, indicating that income levels at the origin impact passenger volumes.
+
+Destination Income with an estimate of 1.027, each \$1 increase in average income at the destination CBSA is associated with an increase of approximately 1 passenger. This implies that higher-income destinations attract more travelers, potentially due to business opportunities or lifestyle choices. This variable is also statistically significant given the low p-value.
+
+The coefficient (R-squared) of ~0.22 tells us that 22% of the variance in total passenger volumes is explained by the model. Although not exceptionally high, it suggests that these variables do contribute to explaining differences in passenger volumes but that there may be other factors (like business activity, tourism, or other regional characteristics) that could improve the model's predictive power.
+
+This regression output supports the hypothesis that CBSA populations, income levels, and distances are key predictors of air travel volume, with larger and wealthier regions generating more passengers and shorter distances encouraging higher travel volumes.
+
+```{r}
+# Exploratory analysis, distribution of total passengers
+ggplot(cbsa_to_cbsa_data, aes(x = total_passengers)) + 
+  geom_histogram(bins = 50) + 
+  labs(title = "Distribution of Total Passengers", x = "Total Passengers", y = "Frequency")
+
+# Model using origin population, destination population, distance, and additional variable: median income
+model <- lm(total_passengers ~ origin_pop + destination_pop + avg_distance + origin_income + destination_income, data = cbsa_to_cbsa_data)
+
+# Display model summary for coefficient interpretation and R-squared
+options(max.print = 100000)
+summary(model)
+
+# Add predicted values as a new column in the dataset for visualization
+cbsa_to_cbsa_data$predicted_passengers <- predict(model)
+
+# Visualize Predicted vs. Actual Passenger Volume
+ggplot(cbsa_to_cbsa_data, aes(x = total_passengers, y = predicted_passengers)) +
+  geom_point() +
+  geom_abline(intercept = -1.701e+05, slope = 1.027e+00, color = "red", linetype = "dashed") +
+  labs(title = "Predicted vs. Actual Passenger Volume",
+       x = "Actual Passenger Volume", y = "Predicted Passenger Volume")
+
+```
+
+# Question 4: Passenger volume prediction
+
+These are the routes Air Carolina is considering implementing:
+
+-   RDU to Portland, OR (PDX) - 2,363 mi
+-   RDU to El Paso, TX (ELP) - 1,606 mi
+-   RDU to Tallahassee, FL (TLH) - 496 mi
+-   RDU to Sacramento, CA (SMF) - 2,345 mi
+
+Use your model to predict passenger demand on these routes. Be sure to predict demand in both directions, i.e. RDU to the destination, and the destination to RDU. Since your model is based on origin and destination metropolitan area Census data, you'll have to find that data for these cities, and create a new table to predict from (it should already be in your dataset, since airlines already fly to all of these cities, just not from RDU). Include a table with forecast demand for each route in your writeup, and discuss which route is likely to be the most popular. How confident are you in your projection, based on the of your model? Are there any unexpected or nonsensical results? [2 points]
+
+Analysis: Using the regression model from Question 3, I've predicted passenger demand for Air Carolina's proposed routes from Raleigh-Durham (RDU) to four destinations: Portland, OR (PDX), El Paso, TX (ELP), Tallahassee, FL (TLH), and Sacramento, CA (SMF). Based on these routes:
+
+Most Popular:
+
+The RDU to Portland (PDX) and RDU to Sacramento (SMF) routes show the highest predicted passenger volumes, with approx 32,000 passengers in each direction. Given these results, the RDU-PDX route is likely to be the most popular among the four proposed routes.
+
+Less Popular Routes:
+
+The RDU to Tallahassee (TLH) route shows a predicted volume of about 8,900 passengers, indicating lower demand but potentially sustainable traffic. This result aligns with expectations for a shorter regional route with lower population in the destination CBSA.
+
+Unexpected Results:
+
+The predictions for RDU to El Paso (ELP) result in a negative passenger volumes in both directions, making it hard to interpret and nonsensical. Particularly for routes where income or population is significantly lower than the average of other routes in the dataset. This result could indicate that the model fails to predict accurately for certain cities with smaller populations or lower income levels.
+
+The R-squared value of 0.2191 from the regression model suggests a moderate fit, meaning the model explains some variation in passenger volumes but leaves out a substantial amount. The confidence in the predictions for larger cities like Portland and Sacramento seem reasonable, the model's accuracy for smaller markets like El Paso and Tallahassee may be less reliable, as evidenced by the negative prediction for El Paso. This outcome indicates that other variables (e.g., business demand, tourism) not captured in the model might play a significant role in determining passenger volume.
+
+```{r}
+# Creating a table structure based on Census dataset to formulate model inputs 
+new_routes <- data.frame(
+  origin = c("RDU","SMF", "RDU", "PDX", "RDU", "ELP", "RDU", "TLH"),
+  dest = c("SMF","RDU", "PDX", "RDU", "ELP" ,"RDU", "TLH", "RDU"),
+  avg_distance = c(2345, 2345, 2363, 2363, 1606, 1606, 496, 496),  # distances for each route
+  
+  origin_income = c(91818, 89227, 91818, 90451, 91818, 55344, 91818, 59757),
+  destination_income = c(89227, 91818,90451,91818,55344, 91818, 59757, 91818),
+  
+  origin_pop = c(1420825, 2394673, 1420825, 2505312, 1420825, 867161, 1420825, 386064),   
+  destination_pop = c(2394673, 1420825, 2505312, 1420825, 867161, 1420825, 386064, 1420825)
+)
+
+# Predict the passenger demand for each route in new_routes
+new_routes$predicted_passengers <- predict(model, newdata = new_routes)
+
+# Display the table with the forecast demand for each route
+new_routes
+
+
+```
